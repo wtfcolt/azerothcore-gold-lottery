@@ -2,4 +2,5 @@ simple gold lotto. took the azerothcore lotto that used the emblems and threw it
 
 it works for the most part
 
-set your npc id in the top
+- set your npc id in the top
+- run the sql in the top comment to create a weekly event in the world db
