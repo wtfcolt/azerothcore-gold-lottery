@@ -1,8 +1,11 @@
 --[[
+DELETE FROM acore_world.game_event WHERE eventEntry = 200;
+
 INSERT INTO acore_world.game_event 
 (eventEntry, start_time, end_time, occurence, `length`, holiday, holidayStage, description, world_event, announce) 
 VALUES
-(200, '2025-01-04 18:00:00', '2030-12-31 23:59:59', 10080, 60, 0, 0, 'Weekly Lottery Drawing', 0, 2);
+(200, '2025-01-04 18:00:00', '2030-12-31 23:59:59', 10080, 10080, 0, 0, 'Weekly Lottery Drawing', 0, 2);
+
  ]]
 local npcId = 777000
 
@@ -126,93 +129,98 @@ RegisterPlayerEvent(PLAYER_EVENT_ON_LOGOUT, LotteryOnLogout)
 --------------------------------------------------------------------------------------------------------------------
 
 local function LotteryTicketEventEnd(event, gameeventid)
-    if (gameeventid == 200) then
-        local result = CharDBQuery("SELECT week_number FROM lottery ORDER BY week_number DESC LIMIT 1")
-        if not result then return end
-        local week_number = result:GetUInt32(0)
+    if (gameeventid ~= 200) then return end
 
-        local lot = CharDBQuery("SELECT number1, number2, number3, number4, number5, number6, amount FROM lottery WHERE week_number=" .. week_number)
-        if not lot then return end
+    local result = CharDBQuery("SELECT week_number FROM lottery ORDER BY week_number DESC LIMIT 1")
+    if not result then return end
+    local week_number = result:GetUInt32(0)
 
-        local number1, number2, number3, number4, number5, number6, amount =
-            lot:GetUInt32(0), lot:GetUInt32(1), lot:GetUInt32(2),
-            lot:GetUInt32(3), lot:GetUInt32(4), lot:GetUInt32(5),
-            lot:GetUInt32(6)
+    local lot = CharDBQuery("SELECT number1, number2, number3, number4, number5, number6, amount FROM lottery WHERE week_number=" .. week_number)
+    if not lot then return end
 
-        local winners = {}
-        local tickets = CharDBQuery("SELECT * FROM lottery_tickets WHERE week_number=" .. week_number)
-        if tickets then
-            while tickets:NextRow() do
-                if tickets:GetUInt32(4) == number1 and
-                   tickets:GetUInt32(5) == number2 and
-                   tickets:GetUInt32(6) == number3 and
-                   tickets:GetUInt32(7) == number4 and
-                   tickets:GetUInt32(8) == number5 and
-                   tickets:GetUInt32(9) == number6 then
-                    table.insert(winners, tickets:GetUInt32(2))
-                end
+    local number1, number2, number3, number4, number5, number6, amount =
+        lot:GetUInt32(0), lot:GetUInt32(1), lot:GetUInt32(2),
+        lot:GetUInt32(3), lot:GetUInt32(4), lot:GetUInt32(5),
+        lot:GetUInt32(6)
+
+    local winners = {}
+    local tickets = CharDBQuery("SELECT * FROM lottery_tickets WHERE week_number=" .. week_number)
+    if tickets then
+        while tickets:NextRow() do
+            if tickets:GetUInt32(4) == number1 and
+               tickets:GetUInt32(5) == number2 and
+               tickets:GetUInt32(6) == number3 and
+               tickets:GetUInt32(7) == number4 and
+               tickets:GetUInt32(8) == number5 and
+               tickets:GetUInt32(9) == number6 then
+                table.insert(winners, tickets:GetUInt32(2)) -- player_guid
             end
-        end
-
-        if #winners > 0 then
-            local winnings = math.floor(amount / #winners)
-            for _, guid in ipairs(winners) do
-                SendMail("Lottery Winner!", "Congratulations! You won " .. winnings .. " copper!", guid, 0, 0, 0, winnings)
-                local q = CharDBQuery("SELECT name FROM characters WHERE guid=" .. guid)
-                if q then
-                    SendWorldMessage("|cffFFD700[Lottery]|r " .. q:GetString(0) .. " has won the lottery jackpot!")
-                end
-            end
-
-            -- start next week since someone won
-            local next_week = week_number + 1
-            local n1, n2, n3, n4, n5, n6 = math.random(0,9), math.random(0,9), math.random(0,9), math.random(0,9), math.random(0,9), math.random(0,9)
-            local starting_pot = 10000000
-            CharDBExecute(string.format("INSERT INTO lottery (week_number, number1, number2, number3, number4, number5, number6, amount) VALUES (%d,%d,%d,%d,%d,%d,%d,%d)",
-                next_week, n1,n2,n3,n4,n5,n6, starting_pot))
-            SendWorldMessage("|cffFFD700[Lottery]|r A new lottery week has begun! Jackpot starts at 1000 gold.")
-        else
-            -- carry over jackpot
-            SendWorldMessage("|cffFFD700[Lottery]|r No winners this week. Jackpot carries over!")
         end
     end
+
+    if #winners > 0 then
+        local winnings = math.floor(amount / #winners)
+        for _, guid in ipairs(winners) do
+            SendMail("Lottery Winner!", "Congratulations! You won " .. winnings .. " copper!", guid, 0, 0, 0, winnings)
+            local q = CharDBQuery("SELECT name FROM characters WHERE guid=" .. guid)
+            if q then
+                SendWorldMessage("|cffFFD700[Lottery]|r " .. q:GetString(0) .. " has won the lottery jackpot!")
+            end
+        end
+
+        -- Start a new week since someone won
+        local next_week = week_number + 1
+        local n1, n2, n3, n4, n5, n6 = math.random(0,9), math.random(0,9), math.random(0,9), math.random(0,9), math.random(0,9), math.random(0,9)
+        local starting_pot = 10000000 -- 1000g
+        CharDBExecute(string.format("INSERT INTO lottery (week_number, number1, number2, number3, number4, number5, number6, amount) VALUES (%d,%d,%d,%d,%d,%d,%d,%d)",
+            next_week, n1,n2,n3,n4,n5,n6, starting_pot))
+        SendWorldMessage("|cffFFD700[Lottery]|r A new lottery week has begun! Jackpot starts at 1000 gold.")
+    else
+        -- carry over jackpot
+        SendWorldMessage("|cffFFD700[Lottery]|r No winners this week. Jackpot carries over!")
+    end
+
+    -- ✅ Always remove old tickets at the end of the draw
+    CharDBExecute("DELETE FROM lottery_tickets WHERE week_number=" .. week_number)
 end
+
 
 
 RegisterServerEvent(GAME_EVENT_STOP, LotteryTicketEventEnd)
 
 -----------------------------------------------------
 
--- Generates the initial lottery numbers.
 local function LotteryTicketEventBegin(event, gameeventid)
-    if (gameeventid == 200) then
-        local week_result = CharDBQuery("SELECT week_number FROM lottery ORDER BY week_number DESC LIMIT 1")
-        local week_number = 0
-        if week_result then
-            week_number = week_result:GetUInt32(0)
-        end
+    if (gameeventid ~= 200) then return end
 
-        -- if no lottery exists, start first week
-        if (week_number == 0) then
-            week_number = 1
-            local number1 = math.random(0, 9)
-            local number2 = math.random(0, 9)
-            local number3 = math.random(0, 9)
-            local number4 = math.random(0, 9)
-            local number5 = math.random(0, 9)
-            local number6 = math.random(0, 9)
+    -- Get the most recent lottery week
+    local week_result = CharDBQuery("SELECT week_number, amount FROM lottery ORDER BY week_number DESC LIMIT 1")
+    local week_number = 0
 
-            local starting_pot = 10000000 -- 1000 gold
+    if week_result then
+        week_number = week_result:GetUInt32(0)
+        local jackpot_amount = week_result:GetUInt32(1)
 
-            CharDBExecute(
-                string.format("INSERT INTO lottery (week_number, number1, number2, number3, number4, number5, number6, amount) VALUES (%d,%d,%d,%d,%d,%d,%d,%d)",
-                    week_number, number1, number2, number3, number4, number5, number6, starting_pot)
-            )
-            SendWorldMessage("|cffFFD700[Lottery]|r A new lottery week has started with a jackpot of 1000 gold!")
-        else
-            -- Don’t create a new week if the last one still has no winner
-            SendWorldMessage("|cffFFD700[Lottery]|r The current lottery continues! Buy your tickets now!")
-        end
+        -- Resume existing lottery
+        SendWorldMessage("|cffFFD700[Lottery]|r The current lottery continues! Jackpot is at "
+            .. math.floor(jackpot_amount / 10000) .. " gold. Buy your tickets now!")
+
+    else
+        -- No lottery exists yet → create the first week
+        week_number = 1
+        local n1, n2, n3, n4, n5, n6 =
+            math.random(0, 9), math.random(0, 9), math.random(0, 9),
+            math.random(0, 9), math.random(0, 9), math.random(0, 9)
+
+        local starting_pot = 10000000 -- 1000 gold
+
+        CharDBExecute(string.format(
+            "INSERT INTO lottery (week_number, number1, number2, number3, number4, number5, number6, amount) " ..
+            "VALUES (%d,%d,%d,%d,%d,%d,%d,%d)",
+            week_number, n1, n2, n3, n4, n5, n6, starting_pot
+        ))
+
+        SendWorldMessage("|cffFFD700[Lottery]|r A new lottery week has started with a jackpot of 1000 gold!")
     end
 end
 
